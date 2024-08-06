@@ -1,0 +1,16 @@
+body {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-direction: column;
+    height: 95vh;
+    color: rgb(126, 126, 126);
+    background: radial-gradient(#ffd0b20f, #ffd0b2);
+}
+
+#title-name {
+    font-size: xx-large;
+    font-weight: bolder;
+    color: black;
+    font-family: 'Trebuchet MS', 'Lucida Sans Unicode', 'Lucida Grande', 'Lucida Sans', Arial, sans-serif
+}
