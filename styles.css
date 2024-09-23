@@ -3,6 +3,7 @@
     margin: 0;
     padding: 0;
     box-sizing: border-box;
+    scroll-behavior: smooth; /* Smooth scrolling */
 }
 
 body {
@@ -20,7 +21,7 @@ body {
 /* Hero Section */
 #hero {
     position: relative;
-    background: url('https://www.alingwenphotography.com/uploads/2/1/2/2/21225944/background-images/original/1.jpg') no-repeat center center/cover;
+    background: url('/images/blue_bg_1.jpg') no-repeat center center/cover;
     height: 100vh;
     display: flex;
     justify-content: center;
@@ -60,6 +61,7 @@ body {
     border-radius: 50px;
     text-decoration: none;
     transition: 0.3s;
+    margin-top: 40px;
 }
 
 .btn:hover {
@@ -93,6 +95,94 @@ body {
     height: 250px;
     border-radius: 50%;
     border: 5px solid #0077cc;
+    object-fit: cover;
+}
+
+/* Timeline Section */
+.timeline {
+    position: relative;
+    margin: 50px 0;
+    padding: 10px 0;
+}
+
+.timeline::before {
+    content: '';
+    position: absolute;
+    width: 4px;
+    background-color: #0077cc;
+    top: 0;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+}
+
+.timeline-item {
+    position: relative;
+    width: 50%;
+    padding: 20px 30px;
+    box-sizing: border-box;
+}
+
+.timeline-item:nth-child(odd) {
+    left: 0;
+}
+
+.timeline-item:nth-child(even) {
+    left: 50%;
+}
+
+.timeline-content {
+    background-color: white;
+    padding: 20px;
+    border-radius: 6px;
+    box-shadow: 0 0 15px rgba(0, 0, 0, 0.1);
+    position: relative;
+}
+
+.timeline-item::before {
+    content: '';
+    position: absolute;
+    top: 15px;
+    width: 10px;
+    height: 10px;
+    background-color: #0077cc;
+    border-radius: 50%;
+    z-index: 1;
+}
+
+.timeline-item:nth-child(odd)::before {
+    right: -5px;
+}
+
+.timeline-item:nth-child(even)::before {
+    left: -5px;
+}
+
+.timeline-date {
+    font-size: 0.9rem;
+    color: #0077cc;
+    margin-bottom: 10px;
+    display: block;
+}
+
+@media screen and (max-width: 768px) {
+    .timeline-item {
+        width: 100%;
+        left: 0 !important;
+        margin-bottom: 40px;
+    }
+
+    .timeline-item:nth-child(even) {
+        left: 0;
+    }
+
+    .timeline::before {
+        left: 20px;
+    }
+
+    .timeline-item::before {
+        left: 15px !important;
+    }
 }
 
 /* Projects Section */
