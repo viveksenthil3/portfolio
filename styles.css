@@ -139,6 +139,10 @@ body {
     position: relative;
 }
 
+.timeline-content ul {
+    padding-left: inherit;
+}
+
 .timeline-item::before {
     content: '';
     position: absolute;
