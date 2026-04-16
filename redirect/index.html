@@ -81,59 +81,6 @@
         <div id="error" class="error" style="display: none;"></div>
         <div id="links" class="links" style="display: none;"></div>
     </div>
-
-    <script>
-        // Redirection mapping
-        const redirects = {
-            linkedin: 'https://www.linkedin.com/in/vivek-senthil-150101174/',
-            github: 'https://github.com/yourusername',
-            twitter: 'https://twitter.com/yourhandle',
-            portfolio: 'https://yoursite.com',
-            email: 'mailto:your.email@example.com',
-            // Add more routes as needed
-        };
-
-        function handleRedirect() {
-            const params = new URLSearchParams(window.location.search);
-            const redirectTo = params.get('to');
-
-            if (redirectTo && redirects[redirectTo.toLowerCase()]) {
-                // Redirect to the mapped URL
-                window.location.href = redirects[redirectTo.toLowerCase()];
-            } else if (redirectTo) {
-                // Invalid redirect route
-                showError(`Invalid redirect route: "${redirectTo}"`);
-                showAvailableLinks();
-            } else {
-                // No redirect specified
-                showError('No redirect route specified');
-                showAvailableLinks();
-            }
-        }
-
-        function showError(message) {
-            document.getElementById('message').style.display = 'none';
-            const errorDiv = document.getElementById('error');
-            errorDiv.textContent = '❌ ' + message;
-            errorDiv.style.display = 'block';
-        }
-
-        function showAvailableLinks() {
-            const linksDiv = document.getElementById('links');
-            linksDiv.innerHTML = '<p><strong>Available routes:</strong></p>';
-            
-            for (const [key, url] of Object.entries(redirects)) {
-                const link = document.createElement('a');
-                link.href = `?to=${key}`;
-                link.textContent = key.charAt(0).toUpperCase() + key.slice(1);
-                linksDiv.appendChild(link);
-            }
-            
-            linksDiv.style.display = 'block';
-        }
-
-        // Handle redirect on page load
-        handleRedirect();
-    </script>
+    <script src="redirect_script.js" defer></script>
 </body>
 </html>

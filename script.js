@@ -87,26 +87,3 @@ document.addEventListener('keydown', function(event) {
         closePaperPreview();
     }
 });
-
-// Redirect functionality (keeping existing redirect logic)
-const redirects = {
-    linkedin: 'https://www.linkedin.com/in/vivek-senthil-150101174/',
-    github: 'https://github.com/viveksenthil3',
-    portfolio: 'https://viveksenthil.dev/'
-};
-
-function handleRedirects() {
-    const params = new URLSearchParams(window.location.search);
-    const redirectTo = params.get('to');
-
-    if (redirectTo && redirects[redirectTo.toLowerCase()]) {
-        window.location.href = redirects[redirectTo.toLowerCase()];
-    } else if (redirectTo) {
-        window.location.href = redirects['portfolio'];
-    }
-}
-
-// Check if we're on the redirect page
-if (window.location.pathname === '/redirect.html' || window.location.pathname === '/') {
-    handleRedirects();
-}
