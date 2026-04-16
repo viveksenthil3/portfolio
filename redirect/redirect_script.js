@@ -5,12 +5,21 @@ const redirects = {
     portfolio: '/'
 };
 
+const fromToPair = {
+    'ms_ai_poster': 'portfolio',
+    'resume': 'linkedin',
+    'resume2026': 'portfolio'
+};
+
 function handleRedirect() {
     const params = new URLSearchParams(window.location.search);
     const redirectTo = params.get('to');
+    const from = params.get('from');
 
     if (redirectTo && redirects[redirectTo.toLowerCase()]) {
         window.location.href = redirects[redirectTo.toLowerCase()];
+    } else if (!redirectTo && from && fromToPair[from.toLowerCase()]) {
+        window.location.href = redirects[fromToPair[from.toLowerCase()]];
     } else {
         window.location.href = redirects['portfolio']; // Default redirect
     }
