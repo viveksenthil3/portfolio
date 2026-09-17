@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GhostKey — Ephemeral Encrypted Secret Sharing</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --card-bg: #161b22;
+      --border: #30363d;
+      --accent: #238636;
+      --accent-hover: #2ea043;
+      --text: #c9d1d9;
+      --text-muted: #8b949e;
+      --text-bright: #f0f6fc;
+      --danger: #da3633;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 1.5rem;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 520px;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 2rem;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    }
+
+    h1 {
+      font-size: 1.5rem;
+      color: var(--text-bright);
+      margin-bottom: 0.5rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    p.subtitle {
+      font-size: 0.875rem;
+      color: var(--text-muted);
+      margin-bottom: 1.5rem;
+      line-height: 1.4;
+    }
+
+    .form-group {
+      margin-bottom: 1.25rem;
+    }
+
+    label {
+      display: block;
+      font-size: 0.85rem;
+      font-weight: 600;
+      margin-bottom: 0.4rem;
+      color: var(--text-bright);
+    }
+
+    textarea, input[type="password"], input[type="text"] {
+      width: 100%;
+      background: #0d1117;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.75rem;
+      color: var(--text-bright);
+      font-size: 0.95rem;
+      outline: none;
+      transition: border-color 0.2s ease;
+    }
+
+    textarea:focus, input:focus {
+      border-color: #58a6ff;
+    }
+
+    textarea {
+      resize: vertical;
+      min-height: 90px;
+    }
+
+    button {
+      width: 100%;
+      padding: 0.75rem;
+      background-color: var(--accent);
+      color: #ffffff;
+      border: none;
+      border-radius: 6px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background-color 0.2s ease;
+    }
+
+    button:hover {
+      background-color: var(--accent-hover);
+    }
+
+    .result-box {
+      margin-top: 1.5rem;
+      padding: 1rem;
+      background: #0d1117;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      word-break: break-all;
+      display: none;
+    }
+
+    .result-box.active {
+      display: block;
+    }
+
+    .copy-btn {
+      margin-top: 0.75rem;
+      background-color: #21262d;
+      border: 1px solid var(--border);
+      color: var(--text-bright);
+    }
+
+    .copy-btn:hover {
+      background-color: #30363d;
+    }
+
+    .status-msg {
+      margin-top: 0.75rem;
+      font-size: 0.85rem;
+      text-align: center;
+      color: var(--text-muted);
+    }
+
+    .badge {
+      font-size: 0.75rem;
+      background: #1f6feb22;
+      color: #58a6ff;
+      border: 1px solid #1f6feb44;
+      padding: 0.15rem 0.5rem;
+      border-radius: 12px;
+      margin-left: 0.5rem;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container" id="app">
+    <!-- View will be injected dynamically -->
+  </div>
+
+  <script>
+    // --- Cryptography Utilities using Web Crypto API ---
+
+    async function deriveKey(passphrase, salt) {
+      const enc = new TextEncoder();
+      const keyMaterial = await crypto.subtle.importKey(
+        "raw",
+        enc.encode(passphrase),
+        { name: "PBKDF2" },
+        false,
+        ["deriveKey"]
+      );
+
+      return crypto.subtle.deriveKey(
+        {
+          name: "PBKDF2",
+          salt: salt,
+          iterations: 100000,
+          hash: "SHA-256"
+        },
+        keyMaterial,
+        { name: "AES-GCM", length: 256 },
+        false,
+        ["encrypt", "decrypt"]
+      );
+    }
+
+    function bufferToBase64Url(buffer) {
+      const bytes = new Uint8Array(buffer);
+      let binary = '';
+      for (let i = 0; i < bytes.byteLength; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    }
+
+    function base64UrlToBuffer(base64) {
+      base64 = base64.replace(/-/g, '+').replace(/_/g, '/');
+      while (base64.length % 4) base64 += '=';
+      const binary = atob(base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      return bytes.buffer;
+    }
+
+    async function encryptSecret(secret, passphrase) {
+      const salt = crypto.getRandomValues(new Uint8Array(16));
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const key = await deriveKey(passphrase, salt);
+      const enc = new TextEncoder();
+
+      const ciphertext = await crypto.subtle.encrypt(
+        { name: "AES-GCM", iv: iv },
+        key,
+        enc.encode(secret)
+      );
+
+      return {
+        salt: bufferToBase64Url(salt),
+        iv: bufferToBase64Url(iv),
+        ct: bufferToBase64Url(ciphertext)
+      };
+    }
+
+    async function decryptSecret(payload, passphrase) {
+      const salt = new Uint8Array(base64UrlToBuffer(payload.salt));
+      const iv = new Uint8Array(base64UrlToBuffer(payload.iv));
+      const ciphertext = base64UrlToBuffer(payload.ct);
+
+      const key = await deriveKey(passphrase, salt);
+      const decrypted = await crypto.subtle.decrypt(
+        { name: "AES-GCM", iv: iv },
+        key,
+        ciphertext
+      );
+
+      return new TextDecoder().decode(decrypted);
+    }
+
+    // --- UI View Handling ---
+
+    const app = document.getElementById("app");
+
+    function renderCreateView() {
+      app.innerHTML = `
+        <h1>GhostKey <span class="badge">AES-256</span></h1>
+        <p class="subtitle">Encrypt a password directly in your browser. Data is bundled into the URL hash fragment and never stored on any server.</p>
+
+        <div class="form-group">
+          <label for="secret">Secret / Password</label>
+          <textarea id="secret" placeholder="Paste sensitive credential or password here..."></textarea>
+        </div>
+
+        <div class="form-group">
+          <label for="passphrase">Decryption Passphrase</label>
+          <input type="password" id="passphrase" placeholder="Shared passphrase..." autocomplete="new-password" />
+        </div>
+
+        <button id="encryptBtn">Generate Encrypted Share Link</button>
+
+        <div class="result-box" id="resultBox">
+          <label>Encrypted Link:</label>
+          <input type="text" id="shareUrl" readonly />
+          <button class="copy-btn" id="copyBtn">Copy Link</button>
+          <div class="status-msg" id="statusMsg"></div>
+        </div>
+      `;
+
+      document.getElementById("encryptBtn").addEventListener("click", async () => {
+        const secret = document.getElementById("secret").value;
+        const passphrase = document.getElementById("passphrase").value;
+
+        if (!secret || !passphrase) {
+          alert("Please fill in both the secret and passphrase.");
+          return;
+        }
+
+        const payload = await encryptSecret(secret, passphrase);
+        const packed = `${payload.salt}.${payload.iv}.${payload.ct}`;
+        const shareUrl = `${window.location.origin}${window.location.pathname}#${packed}`;
+
+        const shareUrlInput = document.getElementById("shareUrl");
+        shareUrlInput.value = shareUrl;
+        document.getElementById("resultBox").classList.add("active");
+
+        const statusMsg = document.getElementById("statusMsg");
+        statusMsg.textContent = "Send this link and deliver the passphrase via a separate channel (e.g., SMS/call).";
+      });
+
+      document.getElementById("copyBtn")?.addEventListener("click", () => {
+        const shareUrlInput = document.getElementById("shareUrl");
+        navigator.clipboard.writeText(shareUrlInput.value);
+        document.getElementById("copyBtn").textContent = "Copied to Clipboard!";
+        setTimeout(() => {
+          document.getElementById("copyBtn").textContent = "Copy Link";
+        }, 2000);
+      });
+    }
+
+    function renderDecryptView(hashData) {
+      const parts = hashData.split(".");
+      if (parts.length !== 3) {
+        renderCreateView();
+        return;
+      }
+
+      const payload = { salt: parts[0], iv: parts[1], ct: parts[2] };
+
+      app.innerHTML = `
+        <h1>GhostKey <span class="badge">Decryption</span></h1>
+        <p class="subtitle">An encrypted payload was detected. Enter the agreed passphrase to decrypt.</p>
+
+        <div class="form-group">
+          <label for="decryptPassphrase">Passphrase</label>
+          <input type="password" id="decryptPassphrase" placeholder="Enter passphrase..." autofocus />
+        </div>
+
+        <button id="decryptBtn">Decrypt Secret</button>
+
+        <div class="result-box" id="resultBox">
+          <label>Decrypted Plaintext:</label>
+          <textarea id="decryptedOutput" readonly></textarea>
+          <button class="copy-btn" id="copyDecryptedBtn">Copy Plaintext</button>
+        </div>
+        <div class="status-msg" id="errorMsg" style="color: var(--danger)"></div>
+      `;
+
+      document.getElementById("decryptBtn").addEventListener("click", async () => {
+        const pass = document.getElementById("decryptPassphrase").value;
+        const errorMsg = document.getElementById("errorMsg");
+        errorMsg.textContent = "";
+
+        try {
+          const decrypted = await decryptSecret(payload, pass);
+          document.getElementById("decryptedOutput").value = decrypted;
+          document.getElementById("resultBox").classList.add("active");
+        } catch (err) {
+          errorMsg.textContent = "Decryption failed. Incorrect passphrase or corrupted link.";
+        }
+      });
+
+      document.getElementById("copyDecryptedBtn")?.addEventListener("click", () => {
+        const decryptedOutput = document.getElementById("decryptedOutput");
+        navigator.clipboard.writeText(decryptedOutput.value);
+        document.getElementById("copyDecryptedBtn").textContent = "Copied!";
+        setTimeout(() => {
+          document.getElementById("copyDecryptedBtn").textContent = "Copy Plaintext";
+        }, 2000);
+      });
+    }
+
+    // --- Init ---
+    const hash = window.location.hash.substring(1);
+    if (hash && hash.includes(".")) {
+      renderDecryptView(hash);
+    } else {
+      renderCreateView();
+    }
+  </script>
+</body>
+</html>
