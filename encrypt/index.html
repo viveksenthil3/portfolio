@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>GhostKey — Ephemeral Encrypted Secret Sharing</title>
+  <title>GhostKey — Encrypted Secret Sharing</title>
+  <script src="https://cdn.jsdelivr.net/npm/libsodium-wrappers-sumo@0.7.15/dist/libsodium-wrappers-sumo.min.js"></script>
   <style>
     :root {
       --bg: #0d1117;
@@ -28,7 +29,6 @@
       background-color: var(--bg);
       color: var(--text);
       display: flex;
-      flex-direction: column;
       align-items: center;
       justify-content: center;
       min-height: 100vh;
@@ -37,7 +37,7 @@
 
     .container {
       width: 100%;
-      max-width: 520px;
+      max-width: 560px;
       background: var(--card-bg);
       border: 1px solid var(--border);
       border-radius: 12px;
@@ -73,7 +73,9 @@
       color: var(--text-bright);
     }
 
-    textarea, input[type="password"], input[type="text"] {
+    textarea,
+    input[type="password"],
+    input[type="text"] {
       width: 100%;
       background: #0d1117;
       border: 1px solid var(--border);
@@ -85,18 +87,19 @@
       transition: border-color 0.2s ease;
     }
 
-    textarea:focus, input:focus {
+    textarea:focus,
+    input:focus {
       border-color: #58a6ff;
     }
 
     textarea {
       resize: vertical;
-      min-height: 90px;
+      min-height: 96px;
     }
 
     button {
       width: 100%;
-      padding: 0.75rem;
+      padding: 0.8rem;
       background-color: var(--accent);
       color: #ffffff;
       border: none;
@@ -109,6 +112,53 @@
 
     button:hover {
       background-color: var(--accent-hover);
+    }
+
+    button.secondary {
+      background-color: #21262d;
+      border: 1px solid var(--border);
+      color: var(--text-bright);
+    }
+
+    button.secondary:hover {
+      background-color: #30363d;
+    }
+
+    .button-row {
+      display: flex;
+      gap: 0.5rem;
+      margin-top: 0.75rem;
+      flex-wrap: wrap;
+    }
+
+    .button-row button {
+      width: auto;
+      flex: 1 1 180px;
+    }
+
+    .helper-text {
+      margin-top: 0.35rem;
+      font-size: 0.8rem;
+      line-height: 1.4;
+      color: var(--text-muted);
+    }
+
+    .warning-box {
+      margin-top: 1rem;
+      padding: 0.9rem 1rem;
+      border: 1px solid #7c4a00;
+      border-radius: 8px;
+      background: #2d1f0a;
+      color: #f2c57c;
+      font-size: 0.86rem;
+      line-height: 1.45;
+    }
+
+    .meta-line {
+      margin-top: 0.65rem;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      line-height: 1.4;
     }
 
     .result-box {
@@ -155,19 +205,55 @@
   </style>
 </head>
 <body>
-
   <div class="container" id="app">
-    <!-- View will be injected dynamically -->
+    <div class="status-msg" style="padding: 1rem 0;">Loading GhostKey…</div>
   </div>
 
   <script>
-    // --- Cryptography Utilities using Web Crypto API ---
+    const app = document.getElementById("app");
+    const HAS_SODIUM = typeof window.sodium !== "undefined" && window.sodium && typeof window.sodium.ready?.then === "function";
+    const LEGACY_PBKDF2_ITERATIONS = 100000;
+    const ARGON2ID_PARAMS = {
+      opslimit: 4,
+      memlimit: 64 * 1024 * 1024,
+      keyLength: 32,
+      saltLength: 16
+    };
 
-    async function deriveKey(passphrase, salt) {
-      const enc = new TextEncoder();
+    function bufferToBase64Url(buffer) {
+      const bytes = new Uint8Array(buffer);
+      let binary = "";
+      for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+      return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    }
+
+    function base64UrlToBuffer(base64) {
+      let normalized = base64.replace(/-/g, "+").replace(/_/g, "/");
+      while (normalized.length % 4) normalized += "=";
+      const binary = atob(normalized);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      return bytes.buffer;
+    }
+
+    function encodeUtf8ToBase64Url(text) {
+      return bufferToBase64Url(new TextEncoder().encode(text));
+    }
+
+    function decodeBase64UrlToUtf8(value) {
+      return new TextDecoder().decode(base64UrlToBuffer(value));
+    }
+
+    function generateStrongPassphrase(length = 24) {
+      const charset = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%*-_=+?";
+      const bytes = crypto.getRandomValues(new Uint8Array(length));
+      return Array.from(bytes, (byte) => charset[byte % charset.length]).join("");
+    }
+
+    async function deriveLegacyKey(passphrase, salt) {
       const keyMaterial = await crypto.subtle.importKey(
         "raw",
-        enc.encode(passphrase),
+        new TextEncoder().encode(passphrase),
         { name: "PBKDF2" },
         false,
         ["deriveKey"]
@@ -176,8 +262,8 @@
       return crypto.subtle.deriveKey(
         {
           name: "PBKDF2",
-          salt: salt,
-          iterations: 100000,
+          salt,
+          iterations: LEGACY_PBKDF2_ITERATIONS,
           hash: "SHA-256"
         },
         keyMaterial,
@@ -187,88 +273,134 @@
       );
     }
 
-    function bufferToBase64Url(buffer) {
-      const bytes = new Uint8Array(buffer);
-      let binary = '';
-      for (let i = 0; i < bytes.byteLength; i++) {
-        binary += String.fromCharCode(bytes[i]);
+    async function deriveArgon2idKey(passphrase, salt, params = ARGON2ID_PARAMS) {
+      if (!HAS_SODIUM) return deriveLegacyKey(passphrase, salt);
+
+      const passwordBytes = sodium.from_string(passphrase);
+      const keyBytes = sodium.crypto_pwhash(
+        params.keyLength,
+        passwordBytes,
+        salt,
+        params.opslimit,
+        params.memlimit,
+        sodium.crypto_pwhash_ALG_DEFAULT
+      );
+
+      const key = await crypto.subtle.importKey("raw", keyBytes, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
+
+      if (typeof sodium.memzero === "function") {
+        sodium.memzero(passwordBytes);
+        sodium.memzero(keyBytes);
       }
-      return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
+      return key;
     }
 
-    function base64UrlToBuffer(base64) {
-      base64 = base64.replace(/-/g, '+').replace(/_/g, '/');
-      while (base64.length % 4) base64 += '=';
-      const binary = atob(base64);
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) {
-        bytes[i] = binary.charCodeAt(i);
+    function encodeVersionedPayload(payload) {
+      return `gk.${encodeUtf8ToBase64Url(JSON.stringify(payload))}`;
+    }
+
+    function parseEncryptedHash(hashData) {
+      if (!hashData) return null;
+
+      if (hashData.startsWith("gk.")) {
+        try {
+          return { format: "v2", payload: JSON.parse(decodeBase64UrlToUtf8(hashData.slice(3))) };
+        } catch {
+          return null;
+        }
       }
-      return bytes.buffer;
+
+      const parts = hashData.split(".");
+      if (parts.length === 3) return { format: "legacy", payload: { salt: parts[0], iv: parts[1], ct: parts[2] } };
+      return null;
     }
 
     async function encryptSecret(secret, passphrase) {
-      const salt = crypto.getRandomValues(new Uint8Array(16));
+      const salt = crypto.getRandomValues(new Uint8Array(ARGON2ID_PARAMS.saltLength));
       const iv = crypto.getRandomValues(new Uint8Array(12));
-      const key = await deriveKey(passphrase, salt);
-      const enc = new TextEncoder();
-
-      const ciphertext = await crypto.subtle.encrypt(
-        { name: "AES-GCM", iv: iv },
-        key,
-        enc.encode(secret)
-      );
+      const key = await deriveArgon2idKey(passphrase, salt);
+      const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, new TextEncoder().encode(secret));
 
       return {
-        salt: bufferToBase64Url(salt),
+        v: 2,
+        alg: "AES-256-GCM",
+        kdf: {
+          name: "argon2id",
+          opslimit: ARGON2ID_PARAMS.opslimit,
+          memlimit: ARGON2ID_PARAMS.memlimit,
+          keyLength: ARGON2ID_PARAMS.keyLength,
+          salt: bufferToBase64Url(salt)
+        },
         iv: bufferToBase64Url(iv),
         ct: bufferToBase64Url(ciphertext)
       };
     }
 
-    async function decryptSecret(payload, passphrase) {
-      const salt = new Uint8Array(base64UrlToBuffer(payload.salt));
+    async function decryptV2Secret(payload, passphrase) {
+      if (!payload?.kdf || payload.kdf.name !== "argon2id") {
+        throw new Error("Unsupported payload format.");
+      }
+
+      const salt = new Uint8Array(base64UrlToBuffer(payload.kdf.salt));
       const iv = new Uint8Array(base64UrlToBuffer(payload.iv));
       const ciphertext = base64UrlToBuffer(payload.ct);
+      const key = await deriveArgon2idKey(passphrase, salt, {
+        opslimit: payload.kdf.opslimit,
+        memlimit: payload.kdf.memlimit,
+        keyLength: payload.kdf.keyLength || ARGON2ID_PARAMS.keyLength
+      });
 
-      const key = await deriveKey(passphrase, salt);
-      const decrypted = await crypto.subtle.decrypt(
-        { name: "AES-GCM", iv: iv },
-        key,
-        ciphertext
-      );
-
+      const decrypted = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ciphertext);
       return new TextDecoder().decode(decrypted);
     }
 
-    // --- UI View Handling ---
-
-    const app = document.getElementById("app");
+    async function decryptLegacySecret(payload, passphrase) {
+      const salt = new Uint8Array(base64UrlToBuffer(payload.salt));
+      const iv = new Uint8Array(base64UrlToBuffer(payload.iv));
+      const ciphertext = base64UrlToBuffer(payload.ct);
+      const key = await deriveLegacyKey(passphrase, salt);
+      const decrypted = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ciphertext);
+      return new TextDecoder().decode(decrypted);
+    }
 
     function renderCreateView() {
       app.innerHTML = `
-        <h1>GhostKey <span class="badge">AES-256</span></h1>
-        <p class="subtitle">Encrypt a password directly in your browser. Data is bundled into the URL hash fragment and never stored on any server.</p>
+        <h1>GhostKey <span class="badge">Encrypted</span></h1>
+  
 
         <div class="form-group">
           <label for="secret">Secret / Password</label>
-          <textarea id="secret" placeholder="Paste sensitive credential or password here..."></textarea>
+          <textarea id="secret" placeholder="Paste sensitive credential or password here..." spellcheck="false"></textarea>
         </div>
 
         <div class="form-group">
           <label for="passphrase">Decryption Passphrase</label>
-          <input type="password" id="passphrase" placeholder="Shared passphrase..." autocomplete="new-password" />
+          <input type="password" id="passphrase" placeholder="Shared passphrase..." autocomplete="new-password" spellcheck="false" />
+          <div class="button-row">
+            <button type="button" class="secondary" id="generatePassphraseBtn">Generate Strong Passphrase</button>
+          </div>
+          <div class="helper-text">Use a long random passphrase. Human-chosen passwords are easier to brute-force offline.</div>
         </div>
 
         <button id="encryptBtn">Generate Encrypted Share Link</button>
 
+        <div class="warning-box">The link is still only as strong as the passphrase. Browser history, the clipboard, screenshots, and chat logs can expose the URL fragment, so share the passphrase separately.</div>
+
         <div class="result-box" id="resultBox">
           <label>Encrypted Link:</label>
-          <input type="text" id="shareUrl" readonly />
+          <input type="text" id="shareUrl" readonly spellcheck="false" />
           <button class="copy-btn" id="copyBtn">Copy Link</button>
           <div class="status-msg" id="statusMsg"></div>
         </div>
       `;
+
+      document.getElementById("generatePassphraseBtn").addEventListener("click", () => {
+        const passphraseInput = document.getElementById("passphrase");
+        passphraseInput.value = generateStrongPassphrase();
+        passphraseInput.focus();
+        passphraseInput.select();
+      });
 
       document.getElementById("encryptBtn").addEventListener("click", async () => {
         const secret = document.getElementById("secret").value;
@@ -280,20 +412,17 @@
         }
 
         const payload = await encryptSecret(secret, passphrase);
-        const packed = `${payload.salt}.${payload.iv}.${payload.ct}`;
+        const packed = encodeVersionedPayload(payload);
         const shareUrl = `${window.location.origin}${window.location.pathname}#${packed}`;
 
-        const shareUrlInput = document.getElementById("shareUrl");
-        shareUrlInput.value = shareUrl;
+        document.getElementById("shareUrl").value = shareUrl;
         document.getElementById("resultBox").classList.add("active");
-
-        const statusMsg = document.getElementById("statusMsg");
-        statusMsg.textContent = "Send this link and deliver the passphrase via a separate channel (e.g., SMS/call).";
+        document.getElementById("statusMsg").textContent = "Send this link and deliver the passphrase via a separate channel (for example, call or SMS).";
       });
 
-      document.getElementById("copyBtn")?.addEventListener("click", () => {
+      document.getElementById("copyBtn")?.addEventListener("click", async () => {
         const shareUrlInput = document.getElementById("shareUrl");
-        navigator.clipboard.writeText(shareUrlInput.value);
+        await navigator.clipboard.writeText(shareUrlInput.value);
         document.getElementById("copyBtn").textContent = "Copied to Clipboard!";
         setTimeout(() => {
           document.getElementById("copyBtn").textContent = "Copy Link";
@@ -301,29 +430,22 @@
       });
     }
 
-    function renderDecryptView(hashData) {
-      const parts = hashData.split(".");
-      if (parts.length !== 3) {
-        renderCreateView();
-        return;
-      }
-
-      const payload = { salt: parts[0], iv: parts[1], ct: parts[2] };
-
+    function renderDecryptView(parsed) {
       app.innerHTML = `
         <h1>GhostKey <span class="badge">Decryption</span></h1>
-        <p class="subtitle">An encrypted payload was detected. Enter the agreed passphrase to decrypt.</p>
+        <p class="subtitle">An encrypted payload was detected. Enter the agreed passphrase to decrypt it.</p>
+        
 
         <div class="form-group">
           <label for="decryptPassphrase">Passphrase</label>
-          <input type="password" id="decryptPassphrase" placeholder="Enter passphrase..." autofocus />
+          <input type="password" id="decryptPassphrase" placeholder="Enter passphrase..." autofocus autocomplete="current-password" spellcheck="false" />
         </div>
 
         <button id="decryptBtn">Decrypt Secret</button>
 
         <div class="result-box" id="resultBox">
           <label>Decrypted Plaintext:</label>
-          <textarea id="decryptedOutput" readonly></textarea>
+          <textarea id="decryptedOutput" readonly spellcheck="false"></textarea>
           <button class="copy-btn" id="copyDecryptedBtn">Copy Plaintext</button>
         </div>
         <div class="status-msg" id="errorMsg" style="color: var(--danger)"></div>
@@ -335,17 +457,20 @@
         errorMsg.textContent = "";
 
         try {
-          const decrypted = await decryptSecret(payload, pass);
+          const decrypted = parsed.format === "v2"
+            ? await decryptV2Secret(parsed.payload, pass)
+            : await decryptLegacySecret(parsed.payload, pass);
+
           document.getElementById("decryptedOutput").value = decrypted;
           document.getElementById("resultBox").classList.add("active");
         } catch (err) {
-          errorMsg.textContent = "Decryption failed. Incorrect passphrase or corrupted link.";
+          errorMsg.textContent = err?.message || "Decryption failed. Incorrect passphrase or corrupted link.";
         }
       });
 
-      document.getElementById("copyDecryptedBtn")?.addEventListener("click", () => {
+      document.getElementById("copyDecryptedBtn")?.addEventListener("click", async () => {
         const decryptedOutput = document.getElementById("decryptedOutput");
-        navigator.clipboard.writeText(decryptedOutput.value);
+        await navigator.clipboard.writeText(decryptedOutput.value);
         document.getElementById("copyDecryptedBtn").textContent = "Copied!";
         setTimeout(() => {
           document.getElementById("copyDecryptedBtn").textContent = "Copy Plaintext";
@@ -353,10 +478,10 @@
       });
     }
 
-    // --- Init ---
     const hash = window.location.hash.substring(1);
-    if (hash && hash.includes(".")) {
-      renderDecryptView(hash);
+    const parsed = parseEncryptedHash(hash);
+    if (parsed) {
+      renderDecryptView(parsed);
     } else {
       renderCreateView();
     }
